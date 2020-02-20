@@ -9,7 +9,6 @@
 #pragma warning(disable : 4996)
 #endif
 
-#include "core/platform/threadpool.h"
 #include "core/framework/op_kernel_context_internal.h"
 
 #include "core/providers/cpu/rnn/deep_cpu_lstm.h"
@@ -17,6 +16,7 @@
 #include "core/common/common.h"
 #include "core/common/logging/logging.h"
 #include "core/framework/allocator.h"
+#include "core/platform/threadpool.h"
 
 #ifdef _MSC_VER
 #pragma warning(pop)
@@ -196,7 +196,6 @@ class UniDirectionalLstm {
                      const gsl::span<const T>& initial_hidden_state, const gsl::span<const T>& initial_cell_state,
                      const ActivationFuncs::Entry& activation_func_f, const ActivationFuncs::Entry& activation_func_g,
                      const ActivationFuncs::Entry& activation_func_h, float clip,
-                     concurrency::ThreadPool& lstm_tp_,
                      concurrency::ThreadPool* mlas_tp_);
 
   void Compute(const gsl::span<const T>& inputs, const gsl::span<const int>& sequence_lengths, int num_directions,
@@ -278,8 +277,7 @@ class UniDirectionalLstm {
   ActivationInfo<deepcpu::ActivationFuncPtr> activation_f_;
   ActivationInfo<deepcpu::ActivationFuncPtr> activation_g_;
   ActivationInfo<deepcpu::LstmMergeGatesFuncPtr> activation_h_;
-
-  concurrency::ThreadPool& lstm_tp_;
+  
   concurrency::ThreadPool* mlas_tp_;
 };
 
@@ -458,15 +456,14 @@ Status DeepCpuLstmOp::ComputeImpl(OpKernelContext& context) const {
                                      activation_funcs_.Entries()[0],
                                      activation_funcs_.Entries()[1],
                                      activation_funcs_.Entries()[2],
-                                     clip_, lstm_tp_, mlas_thread_pool);
+                                     clip_, mlas_thread_pool);
 
     detail::UniDirectionalLstm<T> bw(alloc, logger, seq_length, batch_size, input_size,
                                      hidden_size_, Direction::kReverse, input_forget_,
                                      bias_2, peephole_weights_2, initial_hidden_2, initial_cell_2,
                                      activation_funcs_.Entries()[3],
                                      activation_funcs_.Entries()[4],
-                                     activation_funcs_.Entries()[5],
-                                     clip_, lstm_tp_, mlas_thread_pool);
+                                     activation_funcs_.Entries()[5], clip_, mlas_thread_pool);
 
     fw.Compute(input, sequence_lens_span, num_directions_, input_weights_1, recurrent_weights_1,
                output_1, hidden_output_1, last_cell_1);
@@ -479,7 +476,7 @@ Status DeepCpuLstmOp::ComputeImpl(OpKernelContext& context) const {
                                      activation_funcs_.Entries()[0],
                                      activation_funcs_.Entries()[1],
                                      activation_funcs_.Entries()[2],
-                                     clip_, lstm_tp_, mlas_thread_pool);
+                                     clip_, mlas_thread_pool);
 
     fw.Compute(input, sequence_lens_span, num_directions_, input_weights_1, recurrent_weights_1,
                output_1, hidden_output_1, last_cell_1);
@@ -552,7 +549,6 @@ UniDirectionalLstm<T>::UniDirectionalLstm(AllocatorPtr allocator,
                                           const ActivationFuncs::Entry& activation_func_g,
                                           const ActivationFuncs::Entry& activation_func_h,
                                           const float clip,
-                                          concurrency::ThreadPool& lstm_tp,
                                           concurrency::ThreadPool* mlas_tp)
     : allocator_(allocator),
       logger_(logger),
@@ -565,7 +561,6 @@ UniDirectionalLstm<T>::UniDirectionalLstm(AllocatorPtr allocator,
       clip_(clip),
       use_bias_(!bias.empty()),
       use_peepholes_(!peephole_weights.empty()),
-      lstm_tp_(lstm_tp),
       mlas_tp_(mlas_tp) {
   activation_f_ = {deepcpu::ActivationFuncByName(activation_func_f.name),
                    activation_func_f.alpha,
@@ -883,7 +878,7 @@ void UniDirectionalLstm<T>::Compute(const gsl::span<const T>& inputs_arg,
       }
     };
 
-    ExecuteLambdaInParallel("Processing batch", hidden_gemm_and_activations, batch_size_, fused_hidden_rows, lstm_tp_, logger_);
+    ExecuteLambdaInParallel("Processing batch", hidden_gemm_and_activations, batch_size_, fused_hidden_rows, mlas_tp_, logger_);
 
   } else {
     span_T_const_iter previous_state_end = batched_hidden_state_one_step.cend();

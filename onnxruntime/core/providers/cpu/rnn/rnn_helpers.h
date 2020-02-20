@@ -211,23 +211,18 @@ T* SafeRawPointer(typename gsl::span<T> span, size_t offset, size_t size) {
 }
 
 template <typename TLambda>
-void ExecuteLambdaInParallel(const std::string& name, TLambda lambda, int max, int step,
-                             onnxruntime::concurrency::ThreadPool& ttp,
-                             const ::onnxruntime::logging::Logger& logger) {
+void ExecuteLambdaInParallel(const std::string& , TLambda lambda, int max, int step,
+                             onnxruntime::concurrency::ThreadPool* ttp,
+                             const ::onnxruntime::logging::Logger& ) {
   // #define NOTHREADS to execute the lambdas directly and in order if you need to do that to debug
 
 #ifdef NOTHREADS
   ORT_UNUSED_PARAMETER(ttp);
-  ORT_UNUSED_PARAMETER(logger);
 
   for (int i = 0; i < max; i += step) {
-    (void)name;
     std::bind(lambda, i)();
   }
 #else
-
-  ORT_UNUSED_PARAMETER(name);
-  ORT_UNUSED_PARAMETER(logger);
 
   // ORT_ENFORCE may and does throw at times from within the tasks that run
   // on a thread-pool. Without propagating exceptions the process exits silently
@@ -250,37 +245,43 @@ void ExecuteLambdaInParallel(const std::string& name, TLambda lambda, int max, i
   std::vector<std::future<void> > futures;
   futures.reserve(total_tasks);
 
-  for (int i = 0, t = 0; i < max; i += step, ++t) {
-    auto p_ptr = std::make_shared<std::promise<void> >();
-    futures.push_back(p_ptr->get_future());
-    ttp.Schedule([p_ptr, lambda, i]() {
-      try {
-        lambda(i);
-        p_ptr->set_value();
-      } catch (...) {
-        p_ptr->set_exception(std::current_exception());
-      }
-    });
-  }
+  if (ttp != nullptr) {
+    for (int i = 0, t = 0; i < max; i += step, ++t) {
+      auto p_ptr = std::make_shared<std::promise<void> >();
+      futures.push_back(p_ptr->get_future());
+      ttp->Schedule([p_ptr, lambda, i]() {
+        try {
+          lambda(i);
+          p_ptr->set_value();
+        } catch (...) {
+          p_ptr->set_exception(std::current_exception());
+        }
+      });
+    }
 
-  // We'd like to wait until all of the tasks have finished
-  // even though one or more have already thrown. We will store
-  // the first exception and then will re-throw at the end.
-  std::exception_ptr pending_exception;
-  for (auto& fut : futures) {
-    try {
-      // get() will re-throw any exceptions
-      // the running task may throw
-      fut.get();
-    } catch (...) {
-      if (!pending_exception) {
-        pending_exception = std::current_exception();
+    // We'd like to wait until all of the tasks have finished
+    // even though one or more have already thrown. We will store
+    // the first exception and then will re-throw at the end.
+    std::exception_ptr pending_exception;
+    for (auto& fut : futures) {
+      try {
+        // get() will re-throw any exceptions
+        // the running task may throw
+        fut.get();
+      } catch (...) {
+        if (!pending_exception) {
+          pending_exception = std::current_exception();
+        }
       }
     }
-  }
 
-  if (pending_exception) {
-    std::rethrow_exception(pending_exception);
+    if (pending_exception) {
+      std::rethrow_exception(pending_exception);
+    }
+  } else {
+    for (int i = 0; i < max; i += step) {
+      std::bind(lambda, i)();
+    }
   }
 
 #endif
