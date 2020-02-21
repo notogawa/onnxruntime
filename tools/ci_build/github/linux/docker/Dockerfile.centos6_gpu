@@ -23,7 +23,7 @@ cuda-cudart-$CUDA_PKG_VERSION \
 cuda-compat-10-1 \
 cuda-libraries-$CUDA_PKG_VERSION \
 cuda-nvtx-$CUDA_PKG_VERSION \
-libcublas10-10.2.1.243-1 \
+libcublas10-10.1.0.105-1 \
 cuda-nvml-dev-$CUDA_PKG_VERSION \
 cuda-command-line-tools-$CUDA_PKG_VERSION \
 cuda-libraries-dev-$CUDA_PKG_VERSION \
