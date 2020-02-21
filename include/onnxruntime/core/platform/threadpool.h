@@ -143,7 +143,7 @@ class ThreadPool {
       // CPU cycles due to the threads competing for memory bandwidth, so we
       // statically schedule at most 4 block copies here.
       const size_t kMinBlockSize = 32768;
-      const size_t num_threads = CostModel::numThreads(n, Eigen::TensorOpCost(1.0, 1.0, 0), 4);
+      const size_t num_threads = CostModel::numThreads(static_cast<double>(n), Eigen::TensorOpCost(1.0, 1.0, 0), 4);
       if (n <= kMinBlockSize || num_threads < 2) {
         ::memcpy(dst, src, n);
       } else {
@@ -224,7 +224,7 @@ class ThreadPool {
                      std::function<Eigen::Index(Eigen::Index)> block_align,
                      std::function<void(Eigen::Index, Eigen::Index)> f)  {
       // Compute small problems directly in the caller thread.
-      if (n <= 1 || numThreads() == 1 || CostModel::numThreads(n, cost, static_cast<int>(numThreads())) == 1) {
+      if (n <= 1 || numThreads() == 1 || CostModel::numThreads(static_cast<double>(n), cost, static_cast<int>(numThreads())) == 1) {
         f(0, n);
         return;
       }
@@ -279,7 +279,7 @@ class ThreadPool {
                           std::function<Eigen::Index(Eigen::Index)> block_align,
                           std::function<void(Eigen::Index, Eigen::Index)> f, std::function<void()> done)  {
       // Compute small problems directly in the caller thread.
-      if (n <= 1 || numThreads() == 1 || CostModel::numThreads(n, cost, static_cast<int>(numThreads())) == 1) {
+      if (n <= 1 || numThreads() == 1 || CostModel::numThreads(static_cast<double>(n), cost, static_cast<int>(numThreads())) == 1) {
         f(0, n);
         done();
         return;
@@ -367,7 +367,7 @@ class ThreadPool {
       const Eigen::Index max_oversharding_factor = 4;
       Eigen::Index block_size = Eigen::numext::mini(
           n, Eigen::numext::maxi<Eigen::Index>(Eigen::divup<Eigen::Index>(n, max_oversharding_factor * numThreads()),
-                                               block_size_f));
+                                               static_cast<Eigen::Index>(block_size_f)));
       const Eigen::Index max_block_size = Eigen::numext::mini(n, 2 * block_size);
 
       if (block_align) {
